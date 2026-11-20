@@ -859,10 +859,10 @@ if st.session_state.df_raw is not None:
         clear_inv = opt2.checkbox("Clear Inverted Compare-At Prices", value=True)
         quarantine_on = opt3.checkbox("Quarantine Import-Blocking Rows", value=True)
         v_limit_label = opt4.selectbox(
-            "Max Variants / Product (R08)",
-            ["100 (Legacy Safe)", "2048 (Shopify Expanded)", "No Limit"],
-            index=0,
-        )
+    "Max Variants / Product (R08)",
+    ["100 (Legacy Safe)", "2048 (Shopify Expanded)", "No Limit"],
+    index=1,
+)
         variant_limit_map = {"100 (Legacy Safe)": 100, "2048 (Shopify Expanded)": 2048, "No Limit": None}
         variant_limit = variant_limit_map[v_limit_label]
 
