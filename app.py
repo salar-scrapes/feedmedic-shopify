@@ -14,7 +14,7 @@ from openpyxl.styles import Font, PatternFill
 # ==============================================================================
 # CONTACT & APP CONFIGURATION
 # ==============================================================================
-APP_VERSION = "v3.1"
+APP_VERSION = "v3.2"
 CONTACT_EMAIL = "salarkhan.data@gmail.com"
 LINKEDIN_URL = "https://www.linkedin.com/in/salarkhan-data"
 FREE_EXPORT_LIMIT = 500
@@ -26,24 +26,46 @@ st.set_page_config(
 )
 
 
-# --- 1. REALISTIC 650-ROW DEMO SUPPLIER FEED GENERATOR (IN MEMORY) ---
+def build_gmail_url(email: str, subject: str, body: str) -> str:
+    return (
+        f"https://mail.google.com/mail/?view=cm&fs=1"
+        f"&to={quote(email)}&su={quote(subject)}&body={quote(body)}"
+    )
+
+
+# --- 1. REALISTIC 650-ROW MULTI-OPTION DEMO SUPPLIER FEED GENERATOR ---
 def generate_demo_feed() -> pd.DataFrame:
     rng = random.Random(42)
+    # (base_name, p_type, vendor, opt1_name, opt2_name, [(opt1_val, opt2_val), ...])
     categories = [
-        ("Wireless Earbuds", "Audio", "SoundCore Wholesale", ["Black", "White", "Navy"]),
-        ("Cotton Crew T-Shirt", "Apparel", "NorthTex Apparel", ["Small", "Medium", "Large", "XL"]),
-        ("Insulated Water Bottle", "Home & Kitchen", "HydroPeak", ["500ml", "750ml", "1L"]),
-        ("USB-C Fast Charger", "Electronics", "VoltGrid", ["30W", "65W", "100W"]),
-        ("Leather Card Wallet", "Accessories", "CraftHide", ["Brown", "Black", "Tan"]),
-        ("Ceramic Coffee Mug", "Home & Kitchen", "KilnWorks", ["Matte Black", "Cream", "Olive"]),
-        ("LED Desk Lamp", "Lighting", "LumaTech", ["Warm White", "Cool White"]),
-        ("Silicone Phone Case", "Accessories", "ShieldPro", ["Midnight", "Clear", "Forest"]),
+        ("Wireless Earbuds", "Audio", "SoundCore Wholesale", "Color", "", [("Black", ""), ("White", ""), ("Navy", "")]),
+        (
+            "Cotton Crew T-Shirt",
+            "Apparel",
+            "NorthTex Apparel",
+            "Size",
+            "Color",
+            [("Small", "Black"), ("Small", "White"), ("Medium", "Black"), ("Medium", "White"), ("Large", "Black")],
+        ),
+        ("Insulated Water Bottle", "Home & Kitchen", "HydroPeak", "Capacity", "", [("500ml", ""), ("750ml", ""), ("1L", "")]),
+        ("USB-C Fast Charger", "Electronics", "VoltGrid", "Wattage", "", [("30W", ""), ("65W", ""), ("100W", "")]),
+        (
+            "Leather Card Wallet",
+            "Accessories",
+            "CraftHide",
+            "Material",
+            "Color",
+            [("Full-Grain", "Brown"), ("Full-Grain", "Black"), ("Suede", "Tan")],
+        ),
+        ("Ceramic Coffee Mug", "Home & Kitchen", "KilnWorks", "Finish", "", [("Matte Black", ""), ("Cream", ""), ("Olive", "")]),
+        ("LED Desk Lamp", "Lighting", "LumaTech", "Light Tone", "", [("Warm White", ""), ("Cool White", "")]),
+        ("Silicone Phone Case", "Accessories", "ShieldPro", "Color", "", [("Midnight", ""), ("Clear", ""), ("Forest", "")]),
     ]
 
     rows = []
     sku_counter = 1000
 
-    # Inject 1 product with 105 variants to trigger Shopify's 100-variant hard limit
+    # Inject 1 product with 105 variants to test legacy 100-variant vs expanded 2048-variant behavior
     for v_idx in range(1, 106):
         sku_counter += 1
         rows.append(
@@ -56,6 +78,10 @@ def generate_demo_feed() -> pd.DataFrame:
                 "Tags": "cable, usb-c, wholesale",
                 "Option1 Name": "Length & Color",
                 "Option1 Value": f"Variant-{v_idx}",
+                "Option2 Name": "",
+                "Option2 Value": "",
+                "Option3 Name": "",
+                "Option3 Value": "",
                 "Variant SKU": f"VG-{sku_counter}",
                 "Variant Price": "14.99",
                 "Variant Compare At Price": "19.99",
@@ -68,7 +94,7 @@ def generate_demo_feed() -> pd.DataFrame:
     # Generate remaining 545 realistic rows with controlled supplier defects
     prod_num = 1
     while len(rows) < 650:
-        base_name, p_type, vendor, options = categories[prod_num % len(categories)]
+        base_name, p_type, vendor, o1_name, o2_name, option_pairs = categories[prod_num % len(categories)]
         title = f"{base_name} Series {prod_num}"
         handle = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
 
@@ -86,7 +112,7 @@ def generate_demo_feed() -> pd.DataFrame:
                 f"<p style='font-family:Calibri'>Premium {base_name.lower()}.&amp;nbsp;Wholesale grade.</p>"
             )
 
-        for o_idx, opt in enumerate(options):
+        for o_idx, (o1_val, o2_val) in enumerate(option_pairs):
             if len(rows) >= 650:
                 break
             sku_counter += 1
@@ -96,7 +122,7 @@ def generate_demo_feed() -> pd.DataFrame:
             qty_str = str(rng.randint(5, 120))
             status_str = "active"
             img_str = ""
-            opt_val = opt
+            opt1_v, opt2_v = o1_val, o2_val
 
             roll = rng.random()
             if roll < 0.14:
@@ -135,8 +161,9 @@ def generate_demo_feed() -> pd.DataFrame:
             elif rng.random() < 0.03:
                 img_str = f"http://cdn.supplier.local/my image {sku_counter}.jpg"
 
+            # Inject 3 genuine duplicate option-combination collisions
             if prod_num in (11, 22, 33) and o_idx == 1:
-                opt_val = options[0]
+                opt1_v, opt2_v = option_pairs[0]
 
             rows.append(
                 {
@@ -146,8 +173,12 @@ def generate_demo_feed() -> pd.DataFrame:
                     "Vendor": vendor,
                     "Type": p_type,
                     "Tags": f"{p_type.lower()}, {vendor.lower()}",
-                    "Option1 Name": "Variant",
-                    "Option1 Value": opt_val,
+                    "Option1 Name": o1_name,
+                    "Option1 Value": opt1_v,
+                    "Option2 Name": o2_name,
+                    "Option2 Value": opt2_v,
+                    "Option3 Name": "",
+                    "Option3 Value": "",
                     "Variant SKU": sku,
                     "Variant Price": price_str,
                     "Variant Compare At Price": compare_str,
@@ -233,7 +264,7 @@ def read_uploaded_file(uploaded_file) -> pd.DataFrame:
     raise ValueError("Unsupported format. Please upload CSV, XLSX, XLS, or XML.")
 
 
-# --- 3. SMART COLUMN AUTO-MAPPER ---
+# --- 3. SMART COLUMN AUTO-MAPPER (INCLUDING OPTION 1 / 2 / 3) ---
 ALIASES: Dict[str, List[str]] = {
     "Handle": ["handle", "slug", "url_handle", "product_handle", "product_id", "group_id"],
     "Title": ["title", "product_name", "name", "item_name", "product_title"],
@@ -242,7 +273,11 @@ ALIASES: Dict[str, List[str]] = {
     "Type": ["type", "product_type", "category", "product_category"],
     "Tags": ["tags", "keywords", "labels"],
     "Option1 Name": ["option1 name", "option1_name", "variant_name", "attr1_name"],
-    "Option1 Value": ["option1 value", "option1_value", "variant", "size", "color", "colour"],
+    "Option1 Value": ["option1 value", "option1_value", "variant", "size", "attr1_value"],
+    "Option2 Name": ["option2 name", "option2_name", "attr2_name"],
+    "Option2 Value": ["option2 value", "option2_value", "color", "colour", "material", "attr2_value"],
+    "Option3 Name": ["option3 name", "option3_name", "attr3_name"],
+    "Option3 Value": ["option3 value", "option3_value", "style", "finish", "attr3_value"],
     "Variant SKU": ["variant sku", "sku", "item_code", "part_number", "mpn", "code"],
     "Variant Price": ["variant price", "price", "retail_price", "sell_price", "unit_price", "rrp"],
     "Variant Compare At Price": ["variant compare at price", "compare_at_price", "msrp", "list_price", "old_price"],
@@ -272,7 +307,7 @@ def auto_map(columns: List[str]) -> Dict[str, Optional[str]]:
             for n_col, orig_col in norm_lookup.items():
                 if orig_col in used:
                     continue
-                if any(norm_col(a) in n_col for a in names[:3]):
+                if any(len(norm_col(a)) >= 5 and norm_col(a) in n_col for a in names[:2]):
                     found = orig_col
                     break
         if found:
@@ -339,6 +374,20 @@ def get_val(row: pd.Series, col_map: Dict[str, Optional[str]], key: str) -> str:
     return str(row[col]).strip()
 
 
+def slice_complete_handles(clean_df: pd.DataFrame, max_rows: int) -> Tuple[pd.DataFrame, bool]:
+    """Slices clean_df up to max_rows without ever splitting a product's variants in half."""
+    if clean_df.empty or len(clean_df) <= max_rows:
+        return clean_df, False
+    cut_handle = clean_df.iloc[max_rows]["Handle"]
+    end_idx = max_rows
+    while end_idx > 0 and clean_df.iloc[end_idx - 1]["Handle"] == cut_handle:
+        end_idx -= 1
+    if end_idx == 0:
+        # Edge case: first single product itself exceeds max_rows
+        return clean_df.head(max_rows), True
+    return clean_df.iloc[:end_idx], False
+
+
 # --- 5. SYMMETRICAL NON-OVERLAPPING HEALTH SCORE CALCULATOR ---
 SEV_RANK = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1}
 
@@ -348,16 +397,10 @@ def compute_honest_scores(
     issues_df: pd.DataFrame,
     blocker_row_nums: set,
 ) -> Tuple[int, int, dict]:
-    """
-    Assigns each row AT MOST ONE worst severity (zero double-counting)
-    using identical weights before and after cleaning:
-      CRITICAL / Blocker = 80 | HIGH / Unresolved Merchant Risk = 40 | MEDIUM = 15
-    """
     n = max(total_rows, 1)
     if issues_df.empty:
         return 100, 100, {"raw_crit": 0, "raw_high": 0, "raw_med": 0, "rem_blockers": 0, "rem_high": 0}
 
-    # --- RAW SCORE (Before Auto-Fix) ---
     row_worst_raw: Dict[int, int] = {}
     for _, r in issues_df.iterrows():
         rn = int(r["Row"])
@@ -372,16 +415,13 @@ def compute_honest_scores(
     raw_penalty = (raw_crit / n) * 80.0 + (raw_high / n) * 40.0 + (raw_med / n) * 15.0
     raw_score = max(0, min(100, round(100.0 - raw_penalty)))
 
-    # --- POST-CLEAN SCORE (After Auto-Fix, Same Exact Weights) ---
-    # Only issues marked Resolved == "No" remain as risk after FeedMedic runs.
     unresolved = issues_df[issues_df["Resolved"] == "No"]
     row_worst_post: Dict[int, int] = {}
     for rn in blocker_row_nums:
-        row_worst_post[rn] = 3  # Blockers always carry Critical weight (80)
+        row_worst_post[rn] = 3
 
     for _, r in unresolved.iterrows():
         rn = int(r["Row"])
-        # Non-blocker unresolved risks (duplicate SKU, $0 draft price, ambiguous stock, stripped image) = High weight (40)
         rk = 3 if rn in blocker_row_nums else 2
         if rk > row_worst_post.get(rn, 0):
             row_worst_post[rn] = rk
@@ -392,25 +432,25 @@ def compute_honest_scores(
     clean_penalty = (rem_blockers / n) * 80.0 + (rem_high / n) * 40.0
     clean_score = max(raw_score, min(100, round(100.0 - clean_penalty)))
 
-    breakdown = {
+    return raw_score, clean_score, {
         "raw_crit": raw_crit,
         "raw_high": raw_high,
         "raw_med": raw_med,
         "rem_blockers": rem_blockers,
         "rem_high": rem_high,
     }
-    return raw_score, clean_score, breakdown
 
 
-# --- 6. TWO-PASS SHOPIFY AUDIT + QUARANTINE + CLEAN ENGINE ---
+# --- 6. TWO-PASS SHOPIFY AUDIT + QUARANTINE + MULTI-OPTION CLEAN ENGINE ---
 def run_audit_and_clean(
     df_raw: pd.DataFrame,
     col_map: Dict[str, Optional[str]],
     markup_pct: float,
     clear_inverted_compare: bool,
     quarantine_blockers: bool,
+    variant_limit: Optional[int],
 ):
-    issues = []  # (Row, SKU, Handle, Rule, Severity, Issue Type, Raw Value, Action Taken, Resolved)
+    issues = []
     manual_review_rows = []
     before_after_diffs = []
     parsed_records = []
@@ -425,6 +465,11 @@ def run_audit_and_clean(
     handle_order: Dict[str, int] = {}
     handles_forced_draft = set()
     handle_first_title: Dict[str, str] = {}
+    handle_opt1_name: Dict[str, str] = {}
+    handle_opt2_name: Dict[str, str] = {}
+    handle_opt3_name: Dict[str, str] = {}
+    handle_has_opt2: Dict[str, bool] = {}
+    handle_has_opt3: Dict[str, bool] = {}
 
     # Pass 1: Normalize rows & collect row-level defects
     for idx, row in df_raw.iterrows():
@@ -437,6 +482,10 @@ def run_audit_and_clean(
         raw_tags = get_val(row, col_map, "Tags")
         raw_opt1_name = get_val(row, col_map, "Option1 Name")
         raw_opt1_val = get_val(row, col_map, "Option1 Value")
+        raw_opt2_name = get_val(row, col_map, "Option2 Name")
+        raw_opt2_val = get_val(row, col_map, "Option2 Value")
+        raw_opt3_name = get_val(row, col_map, "Option3 Name")
+        raw_opt3_val = get_val(row, col_map, "Option3 Value")
         raw_sku = get_val(row, col_map, "Variant SKU")
         raw_price = get_val(row, col_map, "Variant Price")
         raw_compare = get_val(row, col_map, "Variant Compare At Price")
@@ -470,6 +519,16 @@ def run_audit_and_clean(
                 handle_order[final_handle] = len(handle_order)
             if final_handle not in handle_first_title and raw_title:
                 handle_first_title[final_handle] = raw_title
+            if final_handle not in handle_opt1_name and raw_opt1_name:
+                handle_opt1_name[final_handle] = raw_opt1_name
+            if final_handle not in handle_opt2_name and raw_opt2_name:
+                handle_opt2_name[final_handle] = raw_opt2_name
+            if final_handle not in handle_opt3_name and raw_opt3_name:
+                handle_opt3_name[final_handle] = raw_opt3_name
+            if raw_opt2_val:
+                handle_has_opt2[final_handle] = True
+            if raw_opt3_val:
+                handle_has_opt3[final_handle] = True
 
         # R04: Duplicate SKU
         if raw_sku and sku_counts.get(raw_sku, 0) > 1:
@@ -568,8 +627,9 @@ def run_audit_and_clean(
                 "vendor": raw_vendor,
                 "type": raw_type,
                 "tags": raw_tags,
-                "opt1_name": raw_opt1_name,
                 "opt1_val": raw_opt1_val,
+                "opt2_val": raw_opt2_val,
+                "opt3_val": raw_opt3_val,
                 "sku": raw_sku,
                 "price": final_price_str,
                 "compare": final_compare_str,
@@ -584,8 +644,12 @@ def run_audit_and_clean(
     # Group scattered rows with the same Handle contiguously (Shopify CSV requirement)
     parsed_records.sort(key=lambda r: (handle_order.get(r["handle"], 10**9), r["row_num"]))
 
-    # Pass 2: Cross-row Shopify structural validation & official parent/child formatting
-    over_limit_handles = {h for h, cnt in handle_counts.items() if cnt > 100}
+    # Pass 2: Cross-row Shopify structural validation (Option1 + Option2 + Option3)
+    over_limit_handles = (
+        {h for h, cnt in handle_counts.items() if cnt > variant_limit}
+        if variant_limit is not None
+        else set()
+    )
     seen_handles = set()
     seen_handle_options = set()
     shopify_rows = []
@@ -599,8 +663,8 @@ def run_audit_and_clean(
 
         if h in over_limit_handles:
             blocker = True
-            reasons.append(f"Handle exceeds Shopify 100-variant limit ({handle_counts[h]} rows)")
-            issues.append((row_num, rec["sku"], h, "R08", "CRITICAL", "Shopify 100-Variant Limit Exceeded", f"{handle_counts[h]} variants", "Quarantined (Split Product Required)", "No"))
+            reasons.append(f"Handle exceeds configured {variant_limit}-variant limit ({handle_counts[h]} rows)")
+            issues.append((row_num, rec["sku"], h, "R08", "CRITICAL", f"Variant Limit Exceeded (>{variant_limit})", f"{handle_counts[h]} variants", "Quarantined (Split Product or Adjust Limit)", "No"))
 
         if h and not handle_first_title.get(h):
             blocker = True
@@ -608,14 +672,35 @@ def run_audit_and_clean(
             issues.append((row_num, rec["sku"], h, "R03", "CRITICAL", "Missing Parent Product Title", "(blank)", "Quarantined (Manual Fix Required)", "No"))
 
         is_multi = handle_counts.get(h, 0) > 1
-        opt_val = rec["opt1_val"] if rec["opt1_val"] else ("Default Title" if not is_multi else "")
+        needs_opt2 = handle_has_opt2.get(h, False)
+        needs_opt3 = handle_has_opt3.get(h, False)
+
+        o1 = rec["opt1_val"] if rec["opt1_val"] else ("Default Title" if not is_multi else "")
+        o2 = rec["opt2_val"] if needs_opt2 else ""
+        o3 = rec["opt3_val"] if needs_opt3 else ""
+
         if is_multi and h not in over_limit_handles:
-            if not opt_val or (h, opt_val.lower()) in seen_handle_options:
+            missing_parts = []
+            if not o1:
+                missing_parts.append("Option1")
+            if needs_opt2 and not o2:
+                missing_parts.append("Option2")
+            if needs_opt3 and not o3:
+                missing_parts.append("Option3")
+
+            combo_label = " / ".join(p for p in (o1, o2, o3) if p) or "(blank)"
+            combo_key = (h, o1.lower(), o2.lower(), o3.lower())
+
+            if missing_parts:
                 blocker = True
-                reasons.append(f"Missing or duplicate Option1 Value ('{opt_val}') under Handle '{h}'")
-                issues.append((row_num, rec["sku"], h, "R09", "CRITICAL", "Duplicate/Missing Variant Option1", opt_val or "(blank)", "Quarantined (Prevents 'Variant Already Exists')", "No"))
+                reasons.append(f"Missing {' & '.join(missing_parts)} Value on multi-variant Handle '{h}'")
+                issues.append((row_num, rec["sku"], h, "R09", "CRITICAL", "Missing Variant Option Value", combo_label, "Quarantined (Prevents Shopify Option Mismatch)", "No"))
+            elif combo_key in seen_handle_options:
+                blocker = True
+                reasons.append(f"Duplicate variant combination ('{combo_label}') under Handle '{h}'")
+                issues.append((row_num, rec["sku"], h, "R09", "CRITICAL", "Duplicate Variant Option Combination", combo_label, "Quarantined (Prevents 'Variant Already Exists')", "No"))
             else:
-                seen_handle_options.add((h, opt_val.lower()))
+                seen_handle_options.add(combo_key)
 
         if blocker:
             blocker_row_nums.add(row_num)
@@ -637,7 +722,9 @@ def run_audit_and_clean(
             seen_handles.add(h)
 
         group_status = "draft" if h in handles_forced_draft else rec["status"]
-        opt1_name_out = rec["opt1_name"] or ("Option" if is_multi else "Title")
+        opt1_name_out = handle_opt1_name.get(h) or ("Option 1" if is_multi else "Title")
+        opt2_name_out = (handle_opt2_name.get(h) or "Option 2") if needs_opt2 else ""
+        opt3_name_out = (handle_opt3_name.get(h) or "Option 3") if needs_opt3 else ""
 
         shopify_rows.append(
             {
@@ -649,7 +736,11 @@ def run_audit_and_clean(
                 "Tags": rec["tags"] if is_first else "",
                 "Published": ("TRUE" if group_status == "active" else "FALSE") if is_first else "",
                 "Option1 Name": opt1_name_out if is_first else "",
-                "Option1 Value": opt_val,
+                "Option1 Value": o1,
+                "Option2 Name": opt2_name_out if is_first else "",
+                "Option2 Value": o2,
+                "Option3 Name": opt3_name_out if is_first else "",
+                "Option3 Value": o3,
                 "Variant SKU": rec["sku"],
                 "Variant Grams": "0",
                 "Variant Inventory Tracker": "shopify",
@@ -711,7 +802,7 @@ def build_styled_excel(issues_df: pd.DataFrame, manual_df: pd.DataFrame, summary
 # --- 7. STREAMLIT WEB UI ---
 st.title(f"FeedMedic {APP_VERSION} — Shopify Supplier Feed Auditor & Cleaner")
 st.caption(
-    "Catch silent Shopify import crashes, $0.00 price leaks, duplicate SKUs, broken variants, and dirty HTML before touching your live store."
+    "Catch silent Shopify import crashes, $0.00 price leaks, duplicate SKUs, multi-option variant collisions, and dirty HTML before touching your live store."
 )
 st.info(
     "Zero Data Storage: Files are processed strictly in RAM and permanently discarded when you close this tab. No Shopify login or API access required."
@@ -745,7 +836,7 @@ with c_demo:
     st.write("")
     if st.button("Load Messy Demo Feed (650 SKUs)", type="primary", use_container_width=True):
         st.session_state.df_raw = generate_demo_feed()
-        st.session_state.source_name = "demo_messy_supplier_650_skus.csv (Synthetic Demo Data)"
+        st.session_state.source_name = "demo_messy_supplier_650_skus.csv (Synthetic Multi-Option Demo)"
 
 if st.session_state.df_raw is not None:
     df_raw = st.session_state.df_raw
@@ -763,15 +854,24 @@ if st.session_state.df_raw is not None:
             chosen = cols_grid[i % 3].selectbox(f"Shopify: {target}", col_options, index=default_idx)
             user_map[target] = None if chosen == "(None)" else chosen
 
-        opt1, opt2, opt3 = st.columns(3)
+        opt1, opt2, opt3, opt4 = st.columns(4)
         markup_pct = opt1.number_input("Optional Markup % on Valid Prices", min_value=0.0, max_value=500.0, value=0.0, step=5.0)
         clear_inv = opt2.checkbox("Clear Inverted Compare-At Prices", value=True)
-        quarantine_on = opt3.checkbox("Quarantine Import-Blocking Rows (Recommended)", value=True)
+        quarantine_on = opt3.checkbox("Quarantine Import-Blocking Rows", value=True)
+        v_limit_label = opt4.selectbox(
+            "Max Variants / Product (R08)",
+            ["100 (Legacy Safe)", "2048 (Shopify Expanded)", "No Limit"],
+            index=0,
+        )
+        variant_limit_map = {"100 (Legacy Safe)": 100, "2048 (Shopify Expanded)": 2048, "No Limit": None}
+        variant_limit = variant_limit_map[v_limit_label]
 
     with st.spinner("Auditing Shopify CSV rules and sanitizing feed..."):
         issues_df, clean_df, manual_df, diff_df, raw_score, clean_score, bd = run_audit_and_clean(
-            df_raw, user_map, markup_pct, clear_inv, quarantine_on
+            df_raw, user_map, markup_pct, clear_inv, quarantine_on, variant_limit
         )
+
+    export_df, sliced_oversized = slice_complete_handles(clean_df, FREE_EXPORT_LIMIT)
 
     st.divider()
     m1, m2, m3, m4 = st.columns(4)
@@ -829,19 +929,18 @@ if st.session_state.df_raw is not None:
             st.success("No rows were quarantined.")
         else:
             st.warning(
-                "These rows would crash Shopify's CSV importer (e.g., >100 variants per product or colliding Variant Options). "
+                "These rows would risk crashing Shopify's CSV importer (e.g., variant limit exceeded or colliding Option1/Option2/Option3 values). "
                 "They are excluded from the Clean CSV and saved in the Excel Audit Report."
             )
             st.dataframe(manual_df, use_container_width=True, hide_index=True)
 
     with t5:
-        st.caption("Formatted strictly to Shopify's official Product CSV parent-child structure.")
-        st.dataframe(clean_df.head(FREE_EXPORT_LIMIT), use_container_width=True, hide_index=True)
+        st.caption(f"Formatted strictly to Shopify's official Product CSV parent-child structure ({len(export_df):,} complete-product rows in free export).")
+        st.dataframe(export_df, use_container_width=True, hide_index=True)
 
     st.divider()
     st.subheader("Download Outputs")
 
-    export_df = clean_df.head(FREE_EXPORT_LIMIT)
     csv_bytes = export_df.to_csv(index=False).encode("utf-8")
 
     summary_metrics = [
@@ -853,7 +952,8 @@ if st.session_state.df_raw is not None:
         {"Metric": "Total Issues Detected", "Value": len(issues_df)},
         {"Metric": "Quarantined Import-Blocking Rows", "Value": len(manual_df)},
         {"Metric": "Clean Rows With Unresolved Merchant Flags", "Value": bd["rem_high"]},
-        {"Metric": "Clean Shopify-Ready Rows", "Value": len(clean_df)},
+        {"Metric": "Total Clean Shopify-Ready Rows", "Value": len(clean_df)},
+        {"Metric": "Free Export Rows (Complete Products Only)", "Value": len(export_df)},
     ]
     excel_bytes = build_styled_excel(issues_df, manual_df, summary_metrics)
 
@@ -865,6 +965,7 @@ if st.session_state.df_raw is not None:
         mime="text/csv",
         type="primary",
         use_container_width=True,
+        disabled=export_df.empty,
     )
     d2.download_button(
         label="Download Full 3-Sheet Excel Audit Report (.xlsx — Free)",
@@ -874,36 +975,66 @@ if st.session_state.df_raw is not None:
         use_container_width=True,
     )
 
-    if len(clean_df) > FREE_EXPORT_LIMIT:
+    # Actionable Conversion Trigger right where the user hits the cap or quarantine blockers
+    remaining_clean = len(clean_df) - len(export_df)
+    if remaining_clean > 0 or len(manual_df) > 0:
+        msg_parts = []
+        if remaining_clean > 0:
+            msg_parts.append(
+                f"**{remaining_clean:,} more clean rows** remain beyond the free {FREE_EXPORT_LIMIT}-row preview (capped cleanly at complete product boundaries)"
+            )
+        if len(manual_df) > 0:
+            msg_parts.append(f"**{len(manual_df):,} quarantined rows** need manual variant/title restructuring")
         st.warning(
-            f"Your catalog has {len(clean_df):,} clean rows. The free browser tool exports the first {FREE_EXPORT_LIMIT} rows so you can verify the import in Shopify immediately. Need the full file cleaned or automated? See below."
+            "Next Step: " + " and ".join(msg_parts) + ". "
+            "Want the complete catalog cleaned, restructured, and verified in a Shopify staging store within 48 hours (starting at $95 for up to 2,500 SKUs)?"
+        )
+        if sliced_oversized:
+            st.caption("Note: Your first single product alone exceeded 500 variants, so the preview was capped at row 500.")
+
+        quick_subject = f"Feed Rescue Quote — {len(df_raw):,} Row Supplier Feed"
+        quick_body = (
+            f"Hi Salar,\n\nI just ran my feed through FeedMedic {APP_VERSION}.\n"
+            f"- Total rows: {len(df_raw):,}\n"
+            f"- Quarantined rows: {len(manual_df):,}\n"
+            f"- Post-Clean Score: {clean_score}/100\n\n"
+            "I'm attaching a 30-50 row sample (or the full file) for a quote.\n"
+        )
+        st.link_button(
+            "Send a 30-50 Row Sample via Gmail for a Free Diagnostic & Quote",
+            build_gmail_url(CONTACT_EMAIL.strip(), quick_subject, quick_body),
+            use_container_width=True,
         )
 
 # --- 8. CLEAN B2B SERVICES & ZERO-MAILTO CONTACT FOOTER ---
 st.divider()
-st.subheader("Need Full Catalog Cleaning (10,000+ SKUs) or Recurring Automation?")
+st.subheader("Need Full Catalog Rescue or a Reusable Supplier Cleaner?")
 
-f1, f2, f3 = st.columns(3)
+f1, f2 = st.columns(2)
 with f1:
-    st.markdown("**1. Emergency Feed Rescue — $95**")
-    st.caption("One-off full catalog cleanup (up to 50,000 SKUs), parent-child variant restructuring, custom markup rules, and staging import check. 48-hour delivery.")
+    st.markdown("**1. Emergency Feed Rescue — $95 (up to 2,500 SKUs)**")
+    st.caption(
+        "One-off cleanup for 1 supplier format (up to 2,500 SKUs): multi-option variant restructuring, custom markup rules, "
+        "deduplication guidance, and live Shopify staging import verification. 48-hour delivery. Larger catalogs (2,500+ SKUs) quoted after a free 30–50 row sample check."
+    )
 with f2:
-    st.markdown("**2. Private 1-Click Cleaner — $250**")
-    st.caption("Custom reusable tool built specifically for your supplier's recurring XML/CSV format + weekly error report. Zero coding needed to run.")
-with f3:
-    st.markdown("**3. Multi-Supplier Auto-Sync — $450+**")
-    st.caption("Scheduled Python pipeline pulling from supplier FTP/URL/API daily, resolving SKU/price conflicts automatically.")
+    st.markdown("**2. Private 1-Click Supplier Cleaner — $250**")
+    st.caption(
+        "Built for stores & agencies receiving recurring weekly/monthly XML, CSV, or Excel updates from the same supplier. "
+        "Custom reusable tool + automated Excel error report. Run it yourself anytime with zero coding."
+    )
 
 c_btn1, c_btn2 = st.columns(2)
 with c_btn1:
     clean_email = CONTACT_EMAIL.strip()
     if clean_email and "@" in clean_email and not clean_email.startswith("http"):
-        subject_q = quote("Shopify Supplier Feed Cleanup — 50-Row Sample")
-        body_q = quote("Hi,\n\nI want to share a 30-50 row sample of my messy supplier feed for a quick diagnostic.\n\nTotal SKUs in full catalog: \nPlatform: Shopify\n")
-        gmail_compose_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote(clean_email)}&su={subject_q}&body={body_q}"
-
-        st.link_button("Send a 50-Row Sample via Gmail (Opens Web Compose)", gmail_compose_url, use_container_width=True)
-        st.caption("Using Outlook, Apple Mail, or another client? Click the copy icon on the right:")
+        footer_url = build_gmail_url(
+            clean_email,
+            "Shopify Supplier Feed Cleanup — 30-50 Row Sample",
+            "Hi Salar,\n\nI want to share a 30-50 row sample of my messy supplier feed for a quick diagnostic.\n\nTotal SKUs in full catalog: \nRecurring supplier? (Yes/No): \n",
+        )
+        st.link_button("Send a 30-50 Row Sample via Gmail", footer_url, use_container_width=True)
+        st.caption("Using Outlook, Apple Mail, or another client? Copy email in 1 click:")
         st.code(clean_email, language=None)
     else:
         st.error("Config Error: CONTACT_EMAIL must be a plain email address (no http/https).")
