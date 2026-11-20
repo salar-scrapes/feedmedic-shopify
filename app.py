@@ -15,7 +15,7 @@ from openpyxl.styles import Font, PatternFill
 # CONTACT & APP CONFIGURATION
 # ==============================================================================
 APP_VERSION = "v3.1"
-CONTACT_EMAIL = "hajikhairzamankhan@gmail.com"
+CONTACT_EMAIL = "salarkhan.data@gmail.com"
 LINKEDIN_URL = "https://www.linkedin.com/in/salarkhan-data"
 FREE_EXPORT_LIMIT = 500
 # ==============================================================================
